@@ -1,0 +1,134 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Colaborador ou Gestor da Liga DPO do Armazém",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "matricula": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["ajudante", "empilhador", "conferente", "manobrista"] },
+        "roleTitle": { "type": "string" },
+        "accessLevel": { "type": "string", "enum": ["operador", "supervisor", "gerente"] },
+        "avatar": { "type": "string" },
+        "status": { "type": "string", "enum": ["ativo", "inativo"] },
+        "desqualificado": { "type": "boolean" },
+        "motivoDesqualificacao": { "type": "string" },
+        "dataDesqualificacao": { "type": "string" },
+        "desqualificadoPor": { "type": "string" }
+      },
+      "required": ["id", "matricula", "name", "role", "accessLevel"]
+    },
+    "DailyRecord": {
+      "title": "DailyRecord",
+      "description": "Registro diário de 4 metas operacionais da Liga DPO",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "metaStatus": { "type": "object" },
+        "calculatedScore": { "type": "number" },
+        "supervisorNotes": { "type": "string" },
+        "validatedBy": { "type": "string" },
+        "validatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "date", "calculatedScore"]
+    },
+    "FiveSSubmission": {
+      "title": "FiveSSubmission",
+      "description": "Submissão de evidência fotográfica da Auditoria 5S",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "sector": { "type": "string" },
+        "checklist": { "type": "object" },
+        "notes": { "type": "string" },
+        "status": { "type": "string", "enum": ["pendente", "aprovado", "rejeitado"] },
+        "approvedBy": { "type": "string" },
+        "isExtraArea": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "date", "photoUrl", "sector", "status"]
+    },
+    "SafetyAnomalyReport": {
+      "title": "SafetyAnomalyReport",
+      "description": "Relato de anomalia operacional ou risco de segurança",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "sector": { "type": "string" },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["pendente", "aprovado", "rejeitado"] },
+        "reviewedBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "date", "sector", "description", "status"]
+    },
+    "CritiqueRequest": {
+      "title": "CritiqueRequest",
+      "description": "Contestação de pontuação aberta por colaborador",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "date": { "type": "string" },
+        "metaNumber": { "type": "number" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pendente", "aprovado", "rejeitado"] },
+        "justification": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "date", "reason", "status"]
+    },
+    "DPONotification": {
+      "title": "DPONotification",
+      "description": "Notificação operacional em tempo real da Liga DPO",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "read": { "type": "boolean" },
+        "type": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "message", "read"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "User" },
+      "description": "Coleção de colaboradores e gestores"
+    },
+    "/dailyRecords/{recordId}": {
+      "schema": { "$ref": "DailyRecord" },
+      "description": "Lançamentos de metas diárias avaliadas pelo supervisor"
+    },
+    "/fiveSSubmissions/{submissionId}": {
+      "schema": { "$ref": "FiveSSubmission" },
+      "description": "Auditorias fotográficas 5S dos colaboradores"
+    },
+    "/safetyReports/{reportId}": {
+      "schema": { "$ref": "SafetyAnomalyReport" },
+      "description": "Relatos de anomalias operacionais e riscos"
+    },
+    "/critiques/{critiqueId}": {
+      "schema": { "$ref": "CritiqueRequest" },
+      "description": "Contestações de notas abertas por colaboradores"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "DPONotification" },
+      "description": "Notificações do sininho dos colaboradores e gestores"
+    }
+  }
+}

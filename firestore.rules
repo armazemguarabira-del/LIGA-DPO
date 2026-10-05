@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Permite leitura e escrita operacional para sincronização da Liga DPO Armazém
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+    match /dailyRecords/{recordId} {
+      allow read, write: if true;
+    }
+    match /fiveSSubmissions/{submissionId} {
+      allow read, write: if true;
+    }
+    match /safetyReports/{reportId} {
+      allow read, write: if true;
+    }
+    match /critiques/{critiqueId} {
+      allow read, write: if true;
+    }
+    match /notifications/{notificationId} {
+      allow read, write: if true;
+    }
+    match /parameters/{docId} {
+      allow read, write: if true;
+    }
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

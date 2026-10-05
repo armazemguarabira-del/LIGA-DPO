@@ -1,0 +1,10 @@
+{
+  "name": "LIGA DPO ARMAZÉM GUARABIRA",
+  "description": "Sistema de Gestão de Metas, Ranking e Pilar DPO de Armazém com acesso por cargo, auditoria 5S com foto e relatórios gerenciais.",
+  "requestFramePermissions": [
+    "CAMERA"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
