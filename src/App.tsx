@@ -40,6 +40,7 @@ import {
   DPONotification,
 } from './types/dpo';
 import { storageService } from './services/storageService';
+import { compressImage } from './services/imageCompression';
 import { SidebarGestor } from './components/SidebarGestor';
 import { NavbarParticipant } from './components/NavbarParticipant';
 import { NotificationModal } from './components/NotificationModal';
@@ -91,22 +92,18 @@ export default function App() {
   // Gestor Photo Upload Ref & Handler
   const topGestorPhotoRef = useRef<HTMLInputElement>(null);
 
-  const handleTopGestorPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTopGestorPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const photoUrl = reader.result as string;
-      storageService.updateGestorPhoto(photoUrl, currentUser?.id);
-      reloadAllData();
-      confetti({
-        particleCount: 40,
-        spread: 60,
-        origin: { y: 0.2 },
-        colors: ['#f59e0b', '#10b981'],
-      });
-    };
-    reader.readAsDataURL(file);
+    const photoUrl = await compressImage(file, 256, 256, 0.82);
+    storageService.updateGestorPhoto(photoUrl, currentUser?.id);
+    reloadAllData();
+    confetti({
+      particleCount: 40,
+      spread: 60,
+      origin: { y: 0.2 },
+      colors: ['#f59e0b', '#10b981'],
+    });
   };
 
   // Navigation & Filter State

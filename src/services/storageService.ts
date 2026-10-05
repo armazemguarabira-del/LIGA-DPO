@@ -245,6 +245,7 @@ export const storageService = {
       }
     } catch (e) {}
 
+    // 1. WebSocket local/server sync (dev fallback)
     realtimeService.subscribe((event) => {
       if (event.type === 'INITIAL_SYNC') {
         if (event.payload && typeof event.payload === 'object' && Object.keys(event.payload).length > 0) {
@@ -264,6 +265,76 @@ export const storageService = {
         realtimeService.pushDatabase(this.getFullDatabaseState(), 'Carga inicial DPO zerada');
       }
     });
+
+    // 2. Firebase Cloud Realtime Sync (Works on GitHub Pages, mobile and desktop)
+    firebaseService.initRealtimeCloudSync({
+      onUsersUpdate: (cloudUsers) => {
+        if (Array.isArray(cloudUsers) && cloudUsers.length > 0) {
+          const localUsers = this.getUsers();
+          const userMap = new Map<string, User>();
+          localUsers.forEach((u) => userMap.set(u.id || u.matricula, u));
+
+          cloudUsers.forEach((cu) => {
+            const key = cu.id || cu.matricula;
+            const existing = userMap.get(key) || userMap.get(cu.matricula);
+            if (existing) {
+              userMap.set(key, {
+                ...existing,
+                ...cu,
+                // Ensure uploaded avatar is preserved
+                avatar: cu.avatar || existing.avatar,
+                metas: cu.metas && cu.metas.length === 4 ? cu.metas : existing.metas,
+              });
+            } else {
+              userMap.set(key, cu);
+            }
+          });
+
+          const merged = Array.from(userMap.values());
+          saveToStorage(KEYS.USERS, merged);
+          this.notifyListeners();
+        }
+      },
+      onDailyRecordsUpdate: (records) => {
+        if (Array.isArray(records)) {
+          saveToStorage(KEYS.DAILY_RECORDS, records);
+          this.notifyListeners();
+        }
+      },
+      onParametersUpdate: (params) => {
+        if (params) {
+          saveToStorage(KEYS.PARAMETERS, params);
+          this.notifyListeners();
+        }
+      },
+      onFiveSUpdate: (submissions) => {
+        if (Array.isArray(submissions)) {
+          saveToStorage(KEYS.FIVE_S, submissions);
+          this.notifyListeners();
+        }
+      },
+      onSafetyReportsUpdate: (reports) => {
+        if (Array.isArray(reports)) {
+          saveToStorage(KEYS.SAFETY_REPORTS, reports);
+          this.notifyListeners();
+        }
+      },
+      onCritiquesUpdate: (critiques) => {
+        if (Array.isArray(critiques)) {
+          saveToStorage(KEYS.CRITIQUES, critiques);
+          this.notifyListeners();
+        }
+      },
+      onNotificationsUpdate: (notifs) => {
+        if (Array.isArray(notifs)) {
+          saveToStorage(KEYS.NOTIFICATIONS, notifs);
+          this.notifyListeners();
+        }
+      },
+    });
+
+    // Seed cloud Firestore if empty so visitors on GitHub Pages load the official data
+    firebaseService.seedCloudIfEmpty(INITIAL_USERS, INITIAL_PARAMETERS);
   },
 
   // ================= USERS =================
@@ -281,14 +352,10 @@ export const storageService = {
     INITIAL_USERS.forEach((initUser) => {
       if (userMap.has(initUser.matricula)) {
         const existing = userMap.get(initUser.matricula)!;
-        if (!existing.metas || existing.metas.length !== 4) {
+        if (!existing.metas || existing.metas.length === 0) {
           userMap.set(initUser.matricula, {
             ...existing,
-            name: existing.name || initUser.name,
-            role: existing.role || initUser.role,
-            roleTitle: existing.roleTitle || initUser.roleTitle,
             metas: initUser.metas,
-            avatar: existing.avatar || initUser.avatar,
             pontuacaoMaxima: 6,
           });
           modified = true;
@@ -327,11 +394,15 @@ export const storageService = {
       users.push(sanitizedUser);
     }
     this.setUsers(users);
+    // Instant sync to Cloud Firestore
+    firebaseService.syncUser(sanitizedUser);
   },
 
   deleteUser(userId: string): void {
     const users = this.getUsers().filter((u) => u.id !== userId);
     this.setUsers(users);
+    // Instant delete from Cloud Firestore
+    firebaseService.deleteUser(userId);
   },
 
   // ================= DESQUALIFICAÇÃO DE COLABORADOR (EXCLUSIVO GESTOR) =================
@@ -492,6 +563,14 @@ export const storageService = {
       records.unshift(record);
     }
     this.setDailyRecords(records);
+    // Instant sync to Cloud Firestore
+    firebaseService.syncDailyRecord(record);
+  },
+
+  deleteDailyRecord(recordId: string): void {
+    const records = this.getDailyRecords().filter((r) => r.id !== recordId);
+    this.setDailyRecords(records);
+    firebaseService.deleteDailyRecord(recordId);
   },
 
   // Quick helper to toggle a single meta for a user on a given date
@@ -1206,20 +1285,22 @@ export const storageService = {
   // ================= AUTH & SESSION =================
   getGestorUser(): User {
     const customAvatar = localStorage.getItem('dpo_liga_gestor_avatar');
+    const gestorInUsers = this.getUsers().find((item) => item.matricula === 'G1002');
     return {
       id: 'u-gestor-g1002',
       matricula: 'G1002',
       pin: '!Liz1105',
-      name: 'Gestor DPO Armazém',
+      name: gestorInUsers?.name || 'Gestor DPO Armazém',
       role: 'conferente',
       roleTitle: 'Gestor Geral Armazém DPO',
       accessLevel: 'gerente',
       avatar:
+        gestorInUsers?.avatar ||
         customAvatar ||
         'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
       status: 'ativo',
       pontuacaoMaxima: 6,
-      metas: [
+      metas: gestorInUsers?.metas || [
         { ordem: 1, descricao: 'Controle de Acuracidade WMS', pontos: 2, categoria: 'qualidade' },
         { ordem: 2, descricao: 'Cumprimento de SLA de Expedição', pontos: 2, categoria: 'eficiencia' },
         { ordem: 3, descricao: 'Auditoria de Anomalias e Segurança', pontos: 1, categoria: 'seguranca' },
@@ -1231,18 +1312,18 @@ export const storageService = {
   updateGestorPhoto(photoUrl: string, userId?: string): void {
     localStorage.setItem('dpo_liga_gestor_avatar', photoUrl);
     const users = this.getUsers();
-    if (userId) {
-      const u = users.find((item) => item.id === userId || item.matricula === userId);
-      if (u) {
-        u.avatar = photoUrl;
-        this.setUsers(users);
-      }
+    let gestorUser = users.find((item) => item.matricula === 'G1002' || item.id === 'u-gestor-g1002');
+    if (gestorUser) {
+      gestorUser.avatar = photoUrl;
+    } else {
+      gestorUser = {
+        ...this.getGestorUser(),
+        avatar: photoUrl,
+      };
+      users.push(gestorUser);
     }
-    const gestorInUsers = users.find((item) => item.matricula === 'G1002');
-    if (gestorInUsers) {
-      gestorInUsers.avatar = photoUrl;
-      this.setUsers(users);
-    }
+    this.setUsers(users);
+    firebaseService.syncUser(gestorUser);
     this.broadcastChange('Foto do Gestor atualizada');
   },
 

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { User, FiveSSubmission, JobRole, ROLE_LABELS, ROLE_BADGE_COLORS, ROLE_ICONS } from '../types/dpo';
 import { storageService } from '../services/storageService';
+import { compressImage } from '../services/imageCompression';
 import { WebcamCapture } from './WebcamCapture';
 
 interface FiveSModuleProps {
@@ -68,14 +69,11 @@ export const FiveSModule: React.FC<FiveSModuleProps> = ({
     isSupervisorOrManager ? 'approvals' : 'form'
   );
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      const compressed = await compressImage(file, 640, 480, 0.82);
+      setPhotoPreview(compressed);
     }
   };
 

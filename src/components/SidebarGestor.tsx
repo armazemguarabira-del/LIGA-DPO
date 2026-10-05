@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { User, ROLE_LABELS, ROLE_ICONS } from '../types/dpo';
 import { storageService } from '../services/storageService';
+import { compressImage } from '../services/imageCompression';
 
 interface SidebarGestorProps {
   currentUser: User;
@@ -71,18 +72,14 @@ export const SidebarGestor: React.FC<SidebarGestorProps> = ({
 }) => {
   const gestorPhotoInputRef = useRef<HTMLInputElement>(null);
 
-  const handleGestorPhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGestorPhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const photoUrl = reader.result as string;
-      storageService.updateGestorPhoto(photoUrl, currentUser.id);
-      if (onGestorPhotoUpdated) {
-        onGestorPhotoUpdated();
-      }
-    };
-    reader.readAsDataURL(file);
+    const photoUrl = await compressImage(file, 256, 256, 0.82);
+    storageService.updateGestorPhoto(photoUrl, currentUser.id);
+    if (onGestorPhotoUpdated) {
+      onGestorPhotoUpdated();
+    }
   };
   const menuItems = [
     {

@@ -39,6 +39,7 @@ import {
   LigaImportSchema,
 } from '../types/dpo';
 import { storageService } from '../services/storageService';
+import { compressImage } from '../services/imageCompression';
 import { DisqualificationModal } from './DisqualificationModal';
 
 interface CadastrosManagementProps {
@@ -90,18 +91,14 @@ export const CadastrosManagement: React.FC<CadastrosManagementProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gestorPhotoInputRef = useRef<HTMLInputElement>(null);
 
-  const handleGestorPhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGestorPhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const photoUrl = reader.result as string;
-      storageService.updateGestorPhoto(photoUrl, currentUser?.id);
-      onDataChanged();
-      setFeedbackMsg('Foto do Gestor atualizada com sucesso!');
-      setTimeout(() => setFeedbackMsg(''), 4000);
-    };
-    reader.readAsDataURL(file);
+    const photoUrl = await compressImage(file, 256, 256, 0.82);
+    storageService.updateGestorPhoto(photoUrl, currentUser?.id);
+    onDataChanged();
+    setFeedbackMsg('Foto do Gestor atualizada com sucesso!');
+    setTimeout(() => setFeedbackMsg(''), 4000);
   };
 
   const [userFormData, setUserFormData] = useState<{
@@ -169,15 +166,12 @@ export const CadastrosManagement: React.FC<CadastrosManagementProps> = ({
     setIsUserModalOpen(true);
   };
 
-  // Handle avatar upload
-  const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle avatar upload with automatic client-side compression
+  const handleAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setUserFormData((prev) => ({ ...prev, avatar: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
+      const compressed = await compressImage(file, 256, 256, 0.82);
+      setUserFormData((prev) => ({ ...prev, avatar: compressed }));
     }
   };
 
