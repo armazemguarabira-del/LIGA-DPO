@@ -26,6 +26,7 @@ import {
   Info,
   ExternalLink,
   CheckCheck,
+  Plus,
 } from 'lucide-react';
 import {
   User,
@@ -34,9 +35,11 @@ import {
   ROLE_LABELS,
   ROLE_BADGE_COLORS,
   ROLE_ICONS,
+  SafetyAnomalyReport,
 } from '../types/dpo';
 import { storageService } from '../services/storageService';
 import { DisqualificationModal } from './DisqualificationModal';
+import { SupervisorCreateAnomalyModal } from './SupervisorCreateAnomalyModal';
 
 interface SupervisorScoringGuideProps {
   users: User[];
@@ -64,13 +67,54 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
   const [isDisqualifyModalOpen, setIsDisqualifyModalOpen] = useState(false);
   const [selectedUserToDisqualify, setSelectedUserToDisqualify] = useState<User | null>(null);
 
-  // Validation Blocked Modal State (when attempting to score 5S or Relato without prior audit)
+  // Anomaly Report Modal State (Supervisor Manual Launch)
+  const [isAnomalyModalOpen, setIsAnomalyModalOpen] = useState(false);
+  const [anomalyPreselectedUserId, setAnomalyPreselectedUserId] = useState<string | undefined>(undefined);
+
+  // Safety Meta Direct/Report Prompt State
+  const [safetyPromptData, setSafetyPromptData] = useState<{
+    user: User;
+    ordem: number;
+    metaDesc: string;
+  } | null>(null);
+
+  // Validation Blocked Modal State (when attempting to score without prior audit)
   const [validationAlertData, setValidationAlertData] = useState<{
     type: '5s' | 'safety';
     user: User;
     isCiceroTeam: boolean;
     metaDesc: string;
   } | null>(null);
+
+  const handleOpenCreateAnomalyModal = (userId?: string) => {
+    setAnomalyPreselectedUserId(userId);
+    setIsAnomalyModalOpen(true);
+  };
+
+  const handleAnomalyCreated = (report: SafetyAnomalyReport) => {
+    onDataChanged();
+    setFeedbackType('success');
+    setFeedback(`Relato de anomalia registrado e atribuído com sucesso a ${report.userName}! Meta de segurança validada.`);
+    setTimeout(() => setFeedback(''), 5000);
+  };
+
+  const handleScoreSafetyDirectly = () => {
+    if (!safetyPromptData) return;
+    const { user, ordem } = safetyPromptData;
+    storageService.toggleMetaStatus(user.id, selectedDate, ordem, true);
+    onDataChanged();
+    setSafetyPromptData(null);
+    setFeedbackType('success');
+    setFeedback(`Meta de Segurança (${ordem}) pontuada diretamente para ${user.name}.`);
+    setTimeout(() => setFeedback(''), 4000);
+  };
+
+  const handleLaunchReportFromPrompt = () => {
+    if (!safetyPromptData) return;
+    const targetUserId = safetyPromptData.user.id;
+    setSafetyPromptData(null);
+    handleOpenCreateAnomalyModal(targetUserId);
+  };
 
   // Locate Cicero and check his 5S status for the selected date
   const ciceroUser = users.find(
@@ -156,7 +200,7 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
       return;
     }
 
-    // Se estiver pontuando (willAchieve === true), validar obrigatoriamente 5S e Relatos:
+    // Se estiver pontuando (willAchieve === true):
     if (meta) {
       const is5S = meta.categoria === '5s' || meta.descricao.toLowerCase().includes('5s');
       const isSafety =
@@ -165,30 +209,26 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
         meta.descricao.toLowerCase().includes('anomalia') ||
         meta.descricao.toLowerCase().includes('segurança');
 
+      // 1. REGRA 5S: O SUPERVISOR PODE MARCAR O ÍCONE DE 5S DIRETAMENTE MESMO SEM O COLABORADOR TER ENVIADO FOTO!
       if (is5S) {
-        const has5S = storageService.hasApprovedFiveS(user.id, selectedDate);
-        if (!has5S) {
-          const isCiceroTeam = CICERO_TEAM_MATRICULAS.includes(user.matricula);
-          setValidationAlertData({
-            type: '5s',
-            user,
-            isCiceroTeam,
-            metaDesc: meta.descricao,
-          });
-          return; // BLOQUEIA A PONTUAÇÃO CONFORME A REGRA DA LIGA
-        }
+        storageService.toggleMetaStatus(user.id, selectedDate, ordem, true);
+        onDataChanged();
+        setFeedbackType('success');
+        setFeedback(`Meta ${ordem} (5S) pontuada com sucesso para ${user.name}!`);
+        setTimeout(() => setFeedback(''), 3000);
+        return;
       }
 
+      // 2. REGRA SEGURANÇA: Se ainda não há relato homologado no dia, abre o prompt flexível
       if (isSafety) {
         const hasSafety = storageService.hasApprovedSafetyReport(user.id, selectedDate);
         if (!hasSafety) {
-          setValidationAlertData({
-            type: 'safety',
+          setSafetyPromptData({
             user,
-            isCiceroTeam: false,
+            ordem,
             metaDesc: meta.descricao,
           });
-          return; // BLOQUEIA A PONTUAÇÃO CONFORME A REGRA DA LIGA
+          return;
         }
       }
     }
@@ -200,9 +240,7 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
 
   // Complete metas for a single user (bater metas respeitando validações de 5S e Relatos)
   const handleScoreAllMetas = (user: User) => {
-    const has5S = storageService.hasApprovedFiveS(user.id, selectedDate);
     const hasSafety = storageService.hasApprovedSafetyReport(user.id, selectedDate);
-    const isCiceroTeam = CICERO_TEAM_MATRICULAS.includes(user.matricula);
 
     const metaStatus: Record<number, boolean> = {};
     let pendingNote = '';
@@ -216,16 +254,12 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
         m.descricao.toLowerCase().includes('segurança');
 
       if (is5S) {
-        metaStatus[m.ordem] = has5S;
-        if (!has5S) {
-          pendingNote += isCiceroTeam
-            ? ' 5S aguarda foto de Cícero.'
-            : ' 5S pendente de validação na Auditoria 5S.';
-        }
+        // O supervisor pode bater o 5S diretamente na pontuação!
+        metaStatus[m.ordem] = true;
       } else if (isSafety) {
         metaStatus[m.ordem] = hasSafety;
         if (!hasSafety) {
-          pendingNote += ' Relato pendente na aba Relatos.';
+          pendingNote += ' Relato de segurança pendente (você pode lançar via botão "+ Relato").';
         }
       } else {
         metaStatus[m.ordem] = true;
@@ -307,12 +341,22 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
           </p>
         </div>
 
-        {/* Global Batch Actions (Virada de dia / Bater Todas) */}
+        {/* Global Batch Actions (Virada de dia / Bater Todas) & Relato Manual */}
         <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
+          {/* BOTÃO PARA INFORMAR RELATOS DE ANOMALIA NÃO LANÇADOS NO APP */}
+          <button
+            onClick={() => handleOpenCreateAnomalyModal()}
+            title="Informar relato de anomalia / segurança atribuindo a qualquer colaborador (foto opcional)"
+            className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+          >
+            <AlertOctagon className="w-4 h-4 fill-slate-950" />
+            <span>+ Lançar Relato de Anomalia</span>
+          </button>
+
           <button
             onClick={handleBatchResetDay}
             title="Zerar pontuações do dia para iniciar nova conferência"
-            className="px-3.5 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm hover:border-slate-700"
+            className="px-3.5 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm hover:border-slate-700 cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
             <span>Zerar Dia (0.0 Geral)</span>
@@ -321,7 +365,7 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
           <button
             onClick={handleBatchScoreAll}
             title="Bater metas operacionais para toda a equipe (itens auditados são computados e falhas podem ser despontuadas)"
-            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20"
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
           >
             <Zap className="w-3.5 h-3.5 fill-slate-950" />
             <span>Bater Todas e Despontuar</span>
@@ -635,18 +679,28 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
                       {/* BATER TODAS */}
                       <button
                         onClick={() => handleScoreAllMetas(user)}
-                        title="Bater metas operacionais (5S/Relatos exigem validação prévia) e despontuar individualmente"
-                        className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 text-xs font-bold border border-emerald-500/30 transition-all flex items-center gap-1"
+                        title="Bater metas operacionais e despontuar individualmente"
+                        className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 text-xs font-bold border border-emerald-500/30 transition-all flex items-center gap-1 cursor-pointer"
                       >
                         <Check className="w-3.5 h-3.5 stroke-[3]" />
                         <span>Bater Todas</span>
+                      </button>
+
+                      {/* LANÇAR RELATO DE ANOMALIA PARA ESTE COLABORADOR */}
+                      <button
+                        onClick={() => handleOpenCreateAnomalyModal(user.id)}
+                        title={`Lançar e atribuir relato de anomalia para ${user.name} (foto opcional)`}
+                        className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500 text-amber-300 hover:text-slate-950 text-xs font-bold border border-amber-500/30 transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <AlertOctagon className="w-3.5 h-3.5" />
+                        <span>+ Relato</span>
                       </button>
 
                       {/* ZERAR (0.0) */}
                       <button
                         onClick={() => handleClearAllMetas(user.id)}
                         title="Zerar metas do dia para preencher uma a uma"
-                        className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 text-xs font-bold transition-all flex items-center gap-1"
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                         <span>Zerar</span>
@@ -657,7 +711,7 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
                         <button
                           onClick={() => handleOpenDisqualifyModal(user)}
                           title="Restaurar qualificação na Liga DPO"
-                          className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 text-xs font-bold border border-emerald-500/40 transition-all flex items-center gap-1"
+                          className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 text-xs font-bold border border-emerald-500/40 transition-all flex items-center gap-1 cursor-pointer"
                         >
                           <Undo2 className="w-3.5 h-3.5" />
                           <span>Reativar</span>
@@ -666,7 +720,7 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
                         <button
                           onClick={() => handleOpenDisqualifyModal(user)}
                           title="Desqualificar este colaborador da Liga informando o motivo formal"
-                          className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white text-xs font-bold border border-rose-500/30 transition-all flex items-center gap-1 shadow-sm"
+                          className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white text-xs font-bold border border-rose-500/30 transition-all flex items-center gap-1 shadow-sm cursor-pointer"
                         >
                           <ShieldAlert className="w-3.5 h-3.5" />
                           <span>Desqualificar</span>
@@ -734,20 +788,20 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
                           {/* Visual Indicators for 5S and Safety Reports */}
                           {is5SMeta && (
                             <div className="pt-1">
-                              {has5S ? (
+                              {isChecked ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  <Check className="w-3 h-3 text-emerald-400 stroke-[3]" />
+                                  {has5S ? '5S com Foto Homologada' : '5S Pontuado pelo Supervisor'}
+                                </span>
+                              ) : has5S ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30">
                                   <Camera className="w-3 h-3 text-purple-400" />
-                                  {isCiceroTeam ? '5S Validado via Foto Cícero' : '5S Auditado & Validado'}
-                                </span>
-                              ) : isCiceroTeam ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                                  <Camera className="w-3 h-3 text-amber-400" />
-                                  Atrelado à Foto de Cícero
+                                  {isCiceroTeam ? 'Foto Cícero Homologada' : 'Foto Auditada'} (Clique p/ Pontuar)
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700">
                                   <Camera className="w-3 h-3" />
-                                  Pendente de Foto 5S
+                                  Sem Foto (Clique p/ Pontuar Direto)
                                 </span>
                               )}
                             </div>
@@ -755,15 +809,20 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
 
                           {isSafetyMeta && (
                             <div className="pt-1">
-                              {hasSafety ? (
+                              {isChecked ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                                   <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                                  Relato Homologado
+                                  {hasSafety ? 'Relato Homologado' : 'Validado pelo Supervisor'}
+                                </span>
+                              ) : hasSafety ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                                  Relato Disponível (Clique p/ Pontuar)
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700">
-                                  <AlertOctagon className="w-3 h-3" />
-                                  Pendente de Relato
+                                  <AlertOctagon className="w-3 h-3 text-amber-400" />
+                                  Sem Relato (Clique p/ Lançar)
                                 </span>
                               )}
                             </div>
@@ -956,6 +1015,80 @@ export const SupervisorScoringGuide: React.FC<SupervisorScoringGuideProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal Prompt quando a Meta de Segurança é clicada sem relato prévio */}
+      {safetyPromptData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center shrink-0">
+                  <AlertOctagon className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Relato de Anomalia / Segurança</h3>
+                  <span className="text-xs text-slate-400">
+                    Colaborador: {safetyPromptData.user.name} ({safetyPromptData.user.matricula})
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSafetyPromptData(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-xs text-slate-300 space-y-2">
+              <p className="leading-relaxed">
+                <strong>{safetyPromptData.user.name}</strong> ainda não possui um relato de anomalia registrado para a data <strong>{selectedDate}</strong>.
+              </p>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                Como supervisor, você pode <strong>lançar e atribuir um novo relato</strong> diretamente a este colaborador (com ou sem foto) para contar no 1º critério de desempate, ou <strong>pontuar a meta de segurança diretamente</strong>.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setSafetyPromptData(null)}
+                className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={handleScoreSafetyDirectly}
+                className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold transition-all border border-amber-500/30 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                <span>Pontuar Meta Direto</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLaunchReportFromPrompt}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+              >
+                <AlertOctagon className="w-3.5 h-3.5 fill-slate-950" />
+                <span>Lançar Relato Agora</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Lançamento Manual de Relato de Anomalia pelo Supervisor */}
+      <SupervisorCreateAnomalyModal
+        isOpen={isAnomalyModalOpen}
+        onClose={() => setIsAnomalyModalOpen(false)}
+        users={users}
+        preselectedUserId={anomalyPreselectedUserId}
+        preselectedDate={selectedDate}
+        onAnomalyCreated={handleAnomalyCreated}
+      />
     </div>
   );
 };

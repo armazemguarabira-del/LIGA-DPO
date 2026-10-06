@@ -282,6 +282,15 @@ export const firebaseService = {
     }
   },
 
+  async deleteSafetyReport(reportId: string): Promise<void> {
+    try {
+      if (!reportId) return;
+      await deleteDoc(doc(db, 'safetyReports', reportId));
+    } catch (e) {
+      console.warn('Firebase deleteSafetyReport notice:', e);
+    }
+  },
+
   // Sync Critique
   async syncCritique(critique: CritiqueRequest): Promise<void> {
     try {

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { SafetyAnomalyReport, ROLE_LABELS, ROLE_BADGE_COLORS, ROLE_ICONS } from '../types/dpo';
 import { storageService } from '../services/storageService';
+import { SupervisorCreateAnomalyModal } from './SupervisorCreateAnomalyModal';
 
 interface SafetyReportsManagementProps {
   reports: SafetyAnomalyReport[];
@@ -35,6 +36,7 @@ export const SafetyReportsManagement: React.FC<SafetyReportsManagementProps> = (
   const [feedback, setFeedback] = useState('');
   const [awardedPoints, setAwardedPoints] = useState<number>(1);
   const [enlargedPhoto, setEnlargedPhoto] = useState<string | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const pendingCount = reports.filter((r) => r.status === 'pendente').length;
   const approvedCount = reports.filter((r) => r.status === 'aprovado').length;
@@ -171,6 +173,15 @@ export const SafetyReportsManagement: React.FC<SafetyReportsManagementProps> = (
             Todos ({reports.length})
           </button>
         </div>
+
+        {/* Right side: Button to launch a new report directly */}
+        <button
+          onClick={() => setIsCreateModalOpen(true)}
+          className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20 cursor-pointer"
+        >
+          <AlertOctagon className="w-4 h-4 fill-slate-950" />
+          <span>+ Lançar Relato Manual</span>
+        </button>
       </div>
 
       {/* Reports Grid */}
@@ -338,6 +349,16 @@ export const SafetyReportsManagement: React.FC<SafetyReportsManagementProps> = (
           </div>
         </div>
       )}
+
+      {/* Modal de Lançamento Manual pelo Supervisor */}
+      <SupervisorCreateAnomalyModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        users={storageService.getUsers()}
+        onAnomalyCreated={() => {
+          onReportsUpdated();
+        }}
+      />
     </div>
   );
 };

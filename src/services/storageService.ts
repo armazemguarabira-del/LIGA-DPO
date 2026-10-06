@@ -767,6 +767,10 @@ export const storageService = {
   },
 
   hasApprovedFiveS(userId: string, date: string): boolean {
+    // 1. Se o supervisor marcou a Meta 4 (5S) diretamente na tela de pontuação, considera aprovado!
+    const rec = this.getDailyRecord(userId, date);
+    if (rec && (rec.fiveSApproved || rec.metaStatus?.[4])) return true;
+
     const subs = this.getFiveSSubmissions();
     const hasDirect = subs.some(
       (s) =>
@@ -797,6 +801,10 @@ export const storageService = {
   },
 
   hasApprovedSafetyReport(userId: string, date: string): boolean {
+    // 1. Se o supervisor marcou a meta de segurança diretamente no dia, considera aprovado!
+    const rec = this.getDailyRecord(userId, date);
+    if (rec && rec.metaStatus?.[3]) return true;
+
     const reports = this.getSafetyReports();
     return reports.some(
       (r) =>
@@ -855,12 +863,9 @@ export const storageService = {
           m.descricao.toLowerCase().includes('segurança');
 
         if (is5S) {
-          metaStatus[m.ordem] = has5S;
-          if (has5S) {
-            calculatedScore += m.pontos;
-          } else {
-            pendingAuditsCount++;
-          }
+          // Na pontuação pelo supervisor, o 5S pode ser marcado diretamente mesmo sem foto!
+          metaStatus[m.ordem] = true;
+          calculatedScore += m.pontos;
         } else if (isSafety) {
           metaStatus[m.ordem] = hasSafety;
           if (hasSafety) {
@@ -1115,9 +1120,10 @@ export const storageService = {
     const reports = this.getSafetyReports();
     reports.unshift(report);
     this.setSafetyReports(reports);
+    firebaseService.syncSafetyReport(report);
 
     // Relatos precisam ser APROVADOS por um gestor para poderem pontuar!
-    // Se foi inserido já com status aprovado (ex: seed), pontua direto:
+    // Se foi inserido já com status aprovado (ex: pelo Supervisor ou seed), pontua direto:
     if (report.status === 'aprovado') {
       const users = this.getUsers();
       const user = users.find((u) => u.id === report.userId);
@@ -1151,6 +1157,12 @@ export const storageService = {
     }
   },
 
+  deleteSafetyReport(reportId: string): void {
+    const reports = this.getSafetyReports().filter((r) => r.id !== reportId);
+    this.setSafetyReports(reports);
+    firebaseService.deleteSafetyReport(reportId);
+  },
+
   validateSafetyReport(
     reportId: string,
     status: 'aprovado' | 'rejeitado',
@@ -1168,6 +1180,7 @@ export const storageService = {
     rep.pointsAwarded = status === 'aprovado' ? pointsAwarded : 0;
     rep.feedback = feedback || (status === 'aprovado' ? 'Relato analisado e validado pela gestão DPO.' : 'Não validado.');
     this.setSafetyReports(reports);
+    firebaseService.syncSafetyReport(rep);
 
     if (status === 'aprovado') {
       // Mark collaborator's safety meta in DailyRecord!
